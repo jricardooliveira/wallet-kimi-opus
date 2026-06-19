@@ -1,58 +1,66 @@
-<p align="center"><img src="https://laravel.com/assets/img/components/logo-laravel.svg"></p>
+# Wallet Debit — an AI-vs-AI coding challenge
 
-<p align="center">
-<a href="https://travis-ci.org/laravel/framework"><img src="https://travis-ci.org/laravel/framework.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/d/total.svg" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/v/stable.svg" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/license.svg" alt="License"></a>
-</p>
+This repository is an experiment: **one AI model designed a coding challenge,
+another solved it, and the first one graded the result.**
 
-## About Laravel
+- **Challenge author & evaluator:** Claude Opus 4.8
+- **Solver:** Kimi Code 3.7 (run via [requesty.ai](https://requesty.ai) as a proxy)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel attempts to take the pain out of development by easing common tasks used in the majority of web projects, such as:
+The brief was a deliberately tricky task for an AI agent: a safe, idempotent
+wallet-debit endpoint on a legacy stack (**Laravel 5.5 / PHP 7.1**) with exact
+decimal money handling, overdraft and duplicate-charge protection, an immutable
+ledger, and full feature-test coverage.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## The result
 
-Laravel is accessible, yet powerful, providing tools needed for large, robust applications.
+**Score: 88 / 100 (B+)**
 
-## Learning Laravel
+Kimi avoided the float-math trap (used `bcmath`), implemented correct
+row-locking for concurrency, and stayed fully PHP 7.1-compatible. It lost points
+on one subtle idempotency bug that only manifests on a real database and was
+masked by its own SQLite-based test suite.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of any modern web application framework, making it a breeze to get started learning the framework.
+## Documents
 
-If you're not in the mood to read, [Laracasts](https://laracasts.com) contains over 1100 video tutorials on a range of topics including Laravel, modern PHP, unit testing, JavaScript, and more. Boost the skill level of yourself and your entire team by digging into our comprehensive video library.
+| File | What it is |
+|------|------------|
+| [CHALLENGE.md](CHALLENGE.md) | The exact task brief handed to the solver |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The solver's own notes on what it built and the problems it hit |
+| [EVALUATION.md](EVALUATION.md) | Criterion-by-criterion review, PHP 7.1 check, and bug findings |
+| [RUBRIC.md](RUBRIC.md) | Reusable 100-point scoring rubric + the scored card |
 
-## Laravel Sponsors
+## The endpoint
 
-We would like to extend our thanks to the following sponsors for helping fund on-going Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell):
+`POST /api/wallets/{walletId}/debit`
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[British Software Development](https://www.britishsoftware.co)**
-- [Fragrantica](https://www.fragrantica.com)
-- [SOFTonSOFA](https://softonsofa.com/)
-- [User10](https://user10.com)
-- [Soumettre.fr](https://soumettre.fr/)
-- [CodeBrisk](https://codebrisk.com)
-- [1Forge](https://1forge.com)
-- [TECPRESSO](https://tecpresso.co.jp/)
-- [Pulse Storm](http://www.pulsestorm.net/)
-- [Runtime Converter](http://runtimeconverter.com/)
-- [WebL'Agence](https://weblagence.com/)
+```json
+{ "amount": "10.05", "currency": "EUR", "reference": "order-4471" }
+```
 
-## Contributing
+Header: `Idempotency-Key: <string>` (required). Debits a wallet using exact
+decimal arithmetic, rejects overdrafts (`409 insufficient_funds`), is safe to
+retry (same key + same body returns the original transaction; different body
+returns `409 idempotency_conflict`), and writes one immutable ledger row per
+successful debit. See `CHALLENGE.md` for the full acceptance criteria.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Running the tests
 
-## Security Vulnerabilities
+The host needs PHP 7.1 with the `bcmath` and `pdo_sqlite` extensions. Because
+PHP 7.1 is end-of-life, the suite was verified inside Docker:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+# Build a PHP 7.1 image with bcmath and pdo_sqlite
+docker build -t wallet-php:7.1 .
 
-## License
+# Install dependencies (Composer 2, pinned to PHP 7.1, scripts skipped)
+docker run --rm -v "$(pwd)":/app -w /app composer:2 \
+  composer install --no-scripts --ignore-platform-reqs
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# Run the suite
+docker run --rm -v "$(pwd)":/app -w /app wallet-php:7.1 vendor/bin/phpunit
+```
+
+> Built on the Laravel 5.5 application skeleton. The feature work lives in
+> `app/Http/Controllers/WalletController.php`, `app/Http/Requests/DebitRequest.php`,
+> the `app/Wallet*.php` models, the `database/migrations/2026_*` migrations, and
+> `tests/Feature/WalletDebitTest.php`.
